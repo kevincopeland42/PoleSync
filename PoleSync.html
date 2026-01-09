@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PoleSync — Real-time pole transfer coordination</title>
+
+  <!-- Tailwind CDN (required) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            display: ["ui-sans-serif", "system-ui", "-apple-system", "Segoe UI", "Roboto", "Helvetica Neue", "Arial", "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji"],
+            body: ["ui-sans-serif", "system-ui", "-apple-system", "Segoe UI", "Roboto", "Helvetica Neue", "Arial", "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji"]
+          },
+          colors: {
+            ink: {
+              950: "#06110E",
+              900: "#0A1915",
+              800: "#0F2420",
+              700: "#16332D",
+              600: "#1B4039"
+            },
+            emeraldite: {
+              50: "#E9FFF5",
+              100: "#CFFFE7",
+              200: "#A5FFD3",
+              300: "#73FFBC",
+              400: "#3FF5A1",
+              500: "#18E38A",
+              600: "#0FCB79",
+              700: "#0AA762",
+              800: "#0A8250",
+              900: "#086A43"
+            },
+            glow: {
+              mint: "rgba(24, 227, 138, 0.35)",
+              teal: "rgba(88, 255, 219, 0.22)",
+              lime: "rgba(194, 255, 126, 0.14)"
+            }
+          },
+          boxShadow: {
+            glass: "0 20px 60px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.08)",
+            soft: "0 12px 40px rgba(0,0,0,0.35)",
+            glow: "0 0 0 1px rgba(24, 227, 138, 0.25), 0 20px 60px rgba(24, 227, 138, 0.10)"
+          },
+          keyframes: {
+            floaty: {
+              "0%, 100%": { transform: "translateY(0px)" },
+              "50%": { transform: "translateY(-10px)" }
+            },
+            shimmer: {
+              "0%": { backgroundPosition: "0% 50%" },
+              "100%": { backgroundPosition: "100% 50%" }
+            },
+            pulseGlow: {
+              "0%, 100%": { opacity: 0.55 },
+              "50%": { opacity: 0.95 }
+            }
+          },
+          animation: {
+            floaty: "floaty 6s ease-in-out infinite",
+            shimmer: "shimmer 10s ease-in-out infinite",
+            pulseGlow: "pulseGlow 3.8s ease-in-out infinite"
+          }
+        }
+      }
+    };
+  </script>
+
+  <style>
+    /* Premium grain + smoother scrolling */
+    html { scroll-behavior: smooth; }
+    .grain::before{
+      content:"";
+      position:absolute; inset:0;
+      background:
+        radial-gradient(1200px 800px at 15% 20%, rgba(24,227,138,.20), transparent 55%),
+        radial-gradient(900px 700px at 85% 20%, rgba(88,255,219,.16), transparent 50%),
+        radial-gradient(1000px 900px at 50% 85%, rgba(194,255,126,.12), transparent 55%),
+        linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,0));
+      pointer-events:none;
+      mix-blend-mode: screen;
+      filter: saturate(110%);
+    }
+    .noise::after{
+      content:"";
+      position:absolute; inset:0;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='.18'/%3E%3C/svg%3E");
+      opacity:.16;
+      pointer-events:none;
+      mix-blend-mode: overlay;
+    }
+    .glass{
+      background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03));
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(255,255,255,.10);
+    }
+    .glass-strong{
+      background: linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.03));
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      border: 1px solid rgba(255,255,255,.12);
+    }
+    .ring-grad{
+      position:absolute; inset:-120px;
+      background: conic-gradient(from 210deg,
+        rgba(24,227,138,.0),
+        rgba(24,227,138,.22),
+        rgba(88,255,219,.18),
+        rgba(194,255,126,.12),
+        rgba(24,227,138,.0)
+      );
+      filter: blur(28px);
+      opacity: .85;
+      animation: spin 14s linear infinite;
+      transform-origin: center;
+      mask-image: radial-gradient(circle at center, transparent 34%, black 60%);
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Reveal animation */
+    .reveal { opacity: 0; transform: translateY(14px); transition: opacity .7s ease, transform .7s ease; }
+    .reveal.on { opacity: 1; transform: translateY(0px); }
+
+    /* Button sheen */
+    .btn-sheen{ position: relative; overflow:hidden; }
+    .btn-sheen::after{
+      content:"";
+      position:absolute;
+      inset:-40%;
+      background: linear-gradient(120deg, transparent 30%, rgba(255,255,255,.22), transparent 70%);
+      transform: translateX(-60%);
+      transition: transform .65s ease;
+    }
+    .btn-sheen:hover::after{ transform: translateX(60%); }
+
+    /* Focus rings */
+    .focusable:focus-visible{
+      outline: none;
+      box-shadow: 0 0 0 4px rgba(24, 227, 138, 0.24), 0 0 0 1px rgba(255,255,255,0.18) inset;
+    }
+  </style>
+</head>
+
+<body class="bg-ink-950 text-white font-body overflow-x-hidden">
+  <!-- Background -->
+  <div class="relative min-h-screen grain noise">
+    <div class="absolute inset-0 -z-10">
+      <div class="absolute inset-0 bg-gradient-to-b from-ink-950 via-ink-900 to-ink-950"></div>
+      <div class="absolute -top-40 left-1/2 -translate-x-1/2 w-[72rem] h-[72rem] rounded-full blur-3xl opacity-60 bg-[radial-gradient(circle_at_center,rgba(24,227,138,0.18),transparent_55%)]"></div>
+      <div class="absolute -bottom-40 left-10 w-[56rem] h-[56rem] rounded-full blur-3xl opacity-50 bg-[radial-gradient(circle_at_center,rgba(88,255,219,0.14),transparent_60%)]"></div>
+      <div class="absolute top-24 right-0 w-[44rem] h-[44rem] rounded-full blur-3xl opacity-40 bg-[radial-gradient(circle_at_center,rgba(194,255,126,0.12),transparent_62%)]"></div>
+    </div>
+
+    <!-- Top bar -->
+    <header class="sticky top-0 z-40">
+      <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pt-4">
+        <div class="glass rounded-2xl shadow-glass">
+          <div class="flex items-center justify-between px-4 sm:px-6 py-3">
+            <div class="flex items-center gap-3">
+              <!-- Render uploaded logo image here -->
+              <!-- IMPORTANT: Replace src with your provided/uploaded image path if needed -->
+              <img
+                src="https://i.postimg.cc/43btdQw0/input-onlinepngtools.png"
+                alt="PoleSync logo"
+                class="h-9 w-auto rounded-lg"
+              />
+              <div class="leading-tight">
+                <div class="font-display font-semibold tracking-tight text-white">PoleSync</div>
+                <div class="text-xs text-white/60 -mt-0.5">Real Time Pole Transfer Coordination</div>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <button id="themeBtn" class="focusable glass rounded-xl px-3 py-2 text-sm text-white/80 hover:text-white hover:border-white/20 transition">
+                <span class="inline-flex items-center gap-2">
+                  <span class="h-2.5 w-2.5 rounded-full bg-emeraldite-400 shadow-[0_0_18px_rgba(24,227,138,0.45)]"></span>
+                  Live
+                </span>
+              </button>
+              <button id="demoBtn" class="focusable btn-sheen rounded-xl px-4 py-2 text-sm font-semibold text-ink-950 bg-gradient-to-r from-emeraldite-300 via-emeraldite-400 to-emeraldite-300 shadow-glow hover:brightness-110 active:brightness-95 transition">
+                Request a demo
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main -->
+    <main class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pt-8 pb-16">
+      <!-- Hero -->
+      <section class="relative">
+        <div class="absolute -inset-x-8 -top-10 -z-10 opacity-90 pointer-events-none">
+          <div class="ring-grad"></div>
+        </div>
+
+        <div class="grid lg:grid-cols-12 gap-6 lg:gap-8 items-stretch">
+          <!-- Left: Hero copy -->
+          <div class="lg:col-span-7">
+            <div class="glass-strong rounded-3xl p-6 sm:p-8 shadow-glass relative overflow-hidden">
+              <div class="absolute inset-0 pointer-events-none">
+                <div class="absolute -top-24 -left-24 w-72 h-72 rounded-full bg-emeraldite-400/15 blur-3xl animate-pulseGlow"></div>
+                <div class="absolute -bottom-24 -right-24 w-72 h-72 rounded-full bg-[rgba(88,255,219,0.14)] blur-3xl animate-pulseGlow" style="animation-delay: 1.2s;"></div>
+              </div>
+
+              <div class="relative">
+                <div class="inline-flex items-center gap-2 rounded-full px-3 py-1.5 glass text-xs text-white/80">
+                  <span class="h-2 w-2 rounded-full bg-emeraldite-400 shadow-[0_0_16px_rgba(24,227,138,0.55)]"></span>
+                  Field-first utility pole management, built for fast and accurate coordination.
+                  <span class="ml-1 text-white/50">•</span>
+                  <span class="text-white/70">Enterprise grade</span>
+                </div>
+
+                <h1 class="mt-4 font-display text-4xl sm:text-5xl lg:text-6xl leading-[1.05] tracking-tight">
+                  Real time pole transfer management digitized and aligned.
+                </h1>
+
+                <p class="mt-4 text-base sm:text-lg text-white/75 max-w-2xl">
+                  PoleSync replaces manual workflows with a unified platform that connects field crews, contractors, and managers. From GPS tagged status updates to live dashboards and GIS exports, every transfer stays visible, trackable, and on pace.
+                </p>
+
+                <div class="mt-6 flex flex-col sm:flex-row gap-3 sm:items-center">
+                  <button id="primaryCta" class="focusable btn-sheen w-full sm:w-auto rounded-2xl px-5 py-3 font-semibold text-ink-950 bg-gradient-to-r from-emeraldite-300 via-emeraldite-400 to-emeraldite-300 shadow-glow hover:brightness-110 active:brightness-95 transition">
+                    Start coordinating
+                  </button>
+                  <button id="secondaryCta" class="focusable w-full sm:w-auto rounded-2xl px-5 py-3 font-semibold text-white/90 glass hover:border-white/25 hover:text-white transition">
+                    See how it works
+                  </button>
+                </div>
+
+                <div class="mt-7 grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div class="glass rounded-2xl p-3">
+                    <div class="text-xs text-white/60">Live Visibility</div>
+                    <div class="mt-1 text-lg font-semibold">Real time updates from field crews and contractors sync automatically to dashboards and GIS.</div>
+                  </div>
+                  <div class="glass rounded-2xl p-3">
+                    <div class="text-xs text-white/60">Operational Efficiency</div>
+                    <div class="mt-1 text-lg font-semibold">Digitized workflows reduce idle time, rework, and scheduling gaps.</div>
+                  </div>
+                  <div class="glass rounded-2xl p-3">
+                    <div class="text-xs text-white/60">Alignment</div>
+                    <div class="mt-1 text-lg font-semibold">All parties operate from the same shared status.</div>
+                  </div>
+                  <div class="glass rounded-2xl p-3">
+                    <div class="text-xs text-white/60">Verified Accountability</div>
+                    <div class="mt-1 text-lg font-semibold">Every update is logged with timestamps, GPS, and user history for full traceability.</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right: Dashboard / Bento -->
+          <div class="lg:col-span-5">
+            <div class="grid gap-6 h-full">
+              <div class="glass-strong rounded-3xl p-6 shadow-glass relative overflow-hidden">
+                <div class="absolute inset-0 pointer-events-none">
+                  <div class="absolute top-0 left-0 w-full h-full opacity-70"
+                       style="background: radial-gradient(800px 320px at 30% 10%, rgba(24,227,138,0.18), transparent 55%),
+                              radial-gradient(600px 260px at 90% 40%, rgba(88,255,219,0.16), transparent 55%);">
+                  </div>
+                </div>
+
+                <div class="relative">
+                  <div class="flex items-center justify-between">
+                    <div class="font-display font-semibold tracking-tight">Transfer Dashboard</div>
+                    <div class="text-xs text-white/60">Synced · seconds ago</div>
+                  </div>
+
+                  <div class="mt-4 grid grid-cols-2 gap-3">
+                    <div class="glass rounded-2xl p-4">
+                      <div class="text-xs text-white/60">Active pole records</div>
+                      <div class="mt-1 text-2xl font-semibold">439</div>
+                      <div class="mt-2 h-2 rounded-full bg-white/10 overflow-hidden">
+                        <div class="h-full w-[62%] bg-gradient-to-r from-emeraldite-300 to-emeraldite-500"></div>
+                      </div>
+                      <div class="mt-1 text-xs text-white/55">62% with transfer scheduled</div>
+                    </div>
+                    <div class="glass rounded-2xl p-4">
+                      <div class="text-xs text-white/60">Avg. days to ‘Complete’</div>
+                      <div class="mt-1 text-2xl font-semibold">14<span class="text-base text-white/70">d</span></div>
+                      <div class="mt-2 flex items-center gap-2 text-xs text-white/60">
+                        <span class="inline-flex h-2 w-2 rounded-full bg-emeraldite-400"></span>
+                        based on recent field updates
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="mt-3 glass rounded-2xl p-4">
+                    <div class="flex items-center justify-between">
+                      <div class="text-sm font-semibold text-white/90">Transfer Status</div>
+                      <div class="text-xs text-white/60">Live</div>
+                    </div>
+
+                    <div class="mt-3 space-y-3">
+                      <!-- milestone rows -->
+                      <div class="flex items-center gap-3">
+                        <div class="h-9 w-9 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center">
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" class="opacity-90">
+                            <path d="M8 7h8M8 12h8M8 17h5" stroke="rgba(255,255,255,.85)" stroke-width="1.6" stroke-linecap="round"/>
+                            <path d="M6 3h12a2 2 0 0 1 2 2v14l-4-2-4 2-4-2-4 2V5a2 2 0 0 1 2-2Z" stroke="rgba(24,227,138,.75)" stroke-width="1.6" stroke-linejoin="round"/>
+                          </svg>
+                        </div>
+                        <div class="flex-1">
+                          <div class="flex items-center justify-between">
+                            <div class="text-sm font-medium">Ready Transfers</div>
+                            <div class="text-xs text-white/60">268</div>
+                          </div>
+                          <div class="mt-1 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                            <div class="h-full w-[78%] bg-gradient-to-r from-emeraldite-300 to-emeraldite-500"></div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div class="flex items-center gap-3">
+                        <div class="h-9 w-9 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center">
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" class="opacity-90">
+                            <path d="M4 18V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12" stroke="rgba(255,255,255,.85)" stroke-width="1.6" stroke-linecap="round"/>
+                            <path d="M7 14l2 2 4-5 4 6" stroke="rgba(88,255,219,.75)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                          </svg>
+                        </div>
+                        <div class="flex-1">
+                          <div class="flex items-center justify-between">
+                            <div class="text-sm font-medium">Completed Transfers</div>
+                            <div class="text-xs text-white/60">134</div>
+                          </div>
+                          <div class="mt-1 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                            <div class="h-full w-[52%] bg-gradient-to-r from-[rgba(88,255,219,.9)] to-emeraldite-500"></div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div class="flex items-center gap-3">
+                        <div class="h-9 w-9 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center">
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" class="opacity-90">
+                            <path d="M12 21s7-4.35 7-10.2A7 7 0 0 0 5 10.8C5 16.65 12 21 12 21Z" stroke="rgba(194,255,126,.75)" stroke-width="1.6" stroke-linejoin="round"/>
+                            <path d="M12 10.5v3.5" stroke="rgba(255,255,255,.85)" stroke-width="1.6" stroke-linecap="round"/>
+                            <path d="M12 8.2h.01" stroke="rgba(255,255,255,.85)" stroke-width="2.2" stroke-linecap="round"/>
+                          </svg>
+                        </div>
+                        <div class="flex-1">
+                          <div class="flex items-center justify-between">
+                            <div class="text-sm font-medium">Blocked Transfers</div>
+                            <div class="text-xs text-white/60">37</div>
+                          </div>
+                          <div class="mt-1 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                            <div class="h-full w-[33%] bg-gradient-to-r from-[rgba(194,255,126,.85)] to-emeraldite-500"></div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="mt-4 flex items-center justify-between">
+                      <div class="text-xs text-white/60">Alerts</div>
+                      <div class="inline-flex items-center gap-2 text-xs px-2.5 py-1 rounded-full bg-white/5 border border-white/10">
+                        <span class="h-2 w-2 rounded-full bg-emeraldite-400 animate-pulse"></span>
+                        3 items need attention
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Quick value cards -->
+              <div class="grid grid-cols-2 gap-4">
+                <div class="glass rounded-3xl p-5 shadow-soft hover:shadow-glow transition duration-300 group">
+                  <div class="flex items-start justify-between">
+                    <div class="text-sm font-semibold">Fast by design</div>
+                    <div class="h-9 w-9 rounded-2xl bg-white/5 border border-white/10 grid place-items-center group-hover:scale-[1.05] transition">
+                      <span class="h-2.5 w-2.5 rounded-full bg-emeraldite-400 shadow-[0_0_16px_rgba(24,227,138,0.5)]"></span>
+                    </div>
+                  </div>
+                  <p class="mt-2 text-xs text-white/65">
+                    PoleSync minimizes input, maximizes accuracy so crews stay focused and projects stay on track and the data stays solid.
+                  </p>
+                </div>
+                <div class="glass rounded-3xl p-5 shadow-soft hover:shadow-glow transition duration-300 group">
+                  <div class="flex items-start justify-between">
+                    <div class="text-sm font-semibold">Designed in the field, for the field.</div>
+                    <div class="h-9 w-9 rounded-2xl bg-white/5 border border-white/10 grid place-items-center group-hover:scale-[1.05] transition">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" stroke="rgba(255,255,255,.85)" stroke-width="1.6" stroke-linecap="round"/>
+                        <path d="M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" stroke="rgba(24,227,138,.75)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                    </div>
+                  </div>
+                  <p class="mt-2 text-xs text-white/65">
+                    PoleSync was designed for the people doing the work.
+                  </p>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- How it works + Features (Bento, asym) -->
+      <section id="how" class="mt-10 sm:mt-14">
+        <div class="reveal">
+          <div class="flex items-end justify-between gap-4">
+            <div>
+              <h2 class="font-display text-2xl sm:text-3xl tracking-tight">Built for real world transfer complexity</h2>
+              <p class="mt-2 text-white/70 max-w-2xl">
+                PoleSync streamlines every phase of utility pole transfers from field data capture to GIS updates without disrupting crew workflows.
+              </p>
+            </div>
+            <div class="hidden sm:flex items-center gap-2 text-xs text-white/60">
+              <span class="inline-flex h-2 w-2 rounded-full bg-emeraldite-400"></span>
+              Operational clarity
+            </div>
+          </div>
+        </div>
+
+        <div class="mt-6 grid lg:grid-cols-12 gap-6">
+          <div class="reveal lg:col-span-5 glass-strong rounded-3xl p-6 shadow-glass overflow-hidden relative">
+            <div class="absolute -top-28 -right-28 w-64 h-64 rounded-full bg-emeraldite-400/10 blur-3xl animate-floaty"></div>
+            <div class="relative">
+              <div class="text-xs text-white/60">Step by step</div>
+              <div class="mt-1 font-display text-xl tracking-tight">Shared data everyone trusts</div>
+              <div class="mt-4 space-y-3">
+                <div class="flex gap-3">
+                  <div class="h-8 w-8 rounded-xl bg-white/5 border border-white/10 grid place-items-center text-sm font-semibold text-emeraldite-200">1</div>
+                  <div>
+                    <div class="text-sm font-semibold">Create a pole transfer</div>
+                    <div class="text-xs text-white/65 mt-0.5">Field crews logs a new transfer with automatic GPS location and timestamp</div>
+                  </div>
+                </div>
+                <div class="flex gap-3">
+                  <div class="h-8 w-8 rounded-xl bg-white/5 border border-white/10 grid place-items-center text-sm font-semibold text-emeraldite-200">2</div>
+                  <div>
+                    <div class="text-sm font-semibold">Sync in real time</div>
+                    <div class="text-xs text-white/65 mt-0.5">Contractors and crews change pole status via app or web, with instant sync to GIS</div>
+                  </div>
+                </div>
+                <div class="flex gap-3">
+                  <div class="h-8 w-8 rounded-xl bg-white/5 border border-white/10 grid place-items-center text-sm font-semibold text-emeraldite-200">3</div>
+                  <div>
+                    <div class="text-sm font-semibold">Track every change </div>
+                    <div class="text-xs text-white/65 mt-0.5">Status changes, blockers, and completions are auto logged with time, location, and user ID.</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="mt-5 glass rounded-2xl p-4">
+                <div class="flex items-center justify-between">
+                  <div class="text-sm font-semibold">Blocker radar</div>
+                  <div class="text-xs text-white/60">Live</div>
+                </div>
+                <div class="mt-3 grid grid-cols-3 gap-2">
+                  <div class="rounded-xl bg-white/5 border border-white/10 p-3">
+                    <div class="text-xs text-white/60">3rd party utility</div>
+                    <div class="mt-1 text-lg font-semibold">23</div>
+                  </div>
+                  <div class="rounded-xl bg-white/5 border border-white/10 p-3">
+                    <div class="text-xs text-white/60">Safety Issue</div>
+                    <div class="mt-1 text-lg font-semibold">3</div>
+                  </div>
+                  <div class="rounded-xl bg-white/5 border border-white/10 p-3">
+                    <div class="text-xs text-white/60">Access</div>
+                    <div class="mt-1 text-lg font-semibold">8</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="lg:col-span-7 grid sm:grid-cols-2 gap-6">
+            <div class="reveal glass rounded-3xl p-6 shadow-soft hover:shadow-glow transition duration-300">
+              <div class="flex items-center justify-between">
+                <div class="font-display text-lg">Safety and maintenance module</div>
+                <div class="h-10 w-10 rounded-2xl bg-white/5 border border-white/10 grid place-items-center">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                    <path d="M5 12h14" stroke="rgba(255,255,255,.85)" stroke-width="1.6" stroke-linecap="round"/>
+                    <path d="M12 5v14" stroke="rgba(24,227,138,.75)" stroke-width="1.6" stroke-linecap="round"/>
+                  </svg>
+                </div>
+              </div>
+              <p class="mt-2 text-sm text-white/70">
+                Log safety issues, inspections, maintenance, or damage separately from transfer records using the same mobile tools
+              </p>
+              <div class="mt-4 flex items-center gap-2 text-xs text-white/60">
+                <span class="inline-flex h-2 w-2 rounded-full bg-emeraldite-400"></span>
+                Geo tagged entries stay separate from transfer records but use the same workflow.
+              </div>
+            </div>
+
+            <div class="reveal glass rounded-3xl p-6 shadow-soft hover:shadow-glow transition duration-300">
+              <div class="flex items-center justify-between">
+                <div class="font-display text-lg">Geo exports (KMZ)</div>
+                <div class="h-10 w-10 rounded-2xl bg-white/5 border border-white/10 grid place-items-center">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                    <path d="M12 21s7-4.35 7-10.2A7 7 0 0 0 5 10.8C5 16.65 12 21 12 21Z" stroke="rgba(255,255,255,.85)" stroke-width="1.6" stroke-linejoin="round"/>
+                    <path d="M9.5 11.5 11 13l3.8-4" stroke="rgba(24,227,138,.75)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </div>
+              </div>
+              <p class="mt-2 text-sm text-white/70">
+                Auto generates KMZ files for use in Google Earth or GIS planning.
+              </p>
+              <div class="mt-4 flex items-center gap-2 text-xs text-white/60">
+                <span class="inline-flex h-2 w-2 rounded-full bg-[rgba(88,255,219,.9)]"></span>
+                Flexiblity built-in
+              </div>
+            </div>
+
+            <div class="reveal glass rounded-3xl p-6 shadow-soft hover:shadow-glow transition duration-300 sm:col-span-2">
+              <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div>
+                  <div class="font-display text-lg">Pole review module</div>
+                  <p class="mt-1 text-sm text-white/70 max-w-2xl">
+                    Use this module to log pole numbers and precise locations in seconds ideal for audits, inventory, or field verification projects.
+                  </p>
+                </div>
+                <div class="glass rounded-2xl px-3 py-2 text-xs text-white/70 whitespace-nowrap">
+                  <span class="text-white/90 font-semibold">Proof</span> when it matters
+                </div>
+              </div>
+
+              <div class="mt-4 grid sm:grid-cols-3 gap-3">
+                <div class="rounded-2xl bg-white/5 border border-white/10 p-4">
+                  <div class="text-xs text-white/60">Quick logging</div>
+                  <div class="mt-1 text-sm font-semibold">One tap GPS + pole number capture no forms to fill out.</div>
+                </div>
+                <div class="rounded-2xl bg-white/5 border border-white/10 p-4">
+                  <div class="text-xs text-white/60">Audit records</div>
+                  <div class="mt-1 text-sm font-semibold">Each entry is time stamped and stored for compliance and location checks.</div>
+                </div>
+                <div class="rounded-2xl bg-white/5 border border-white/10 p-4">
+                  <div class="text-xs text-white/60">Inventory mapping</div>
+                  <div class="mt-1 text-sm font-semibold">Instantly builds a geo tagged map of poles reviewed in the field. Also can be exported as a KMZ file.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- CTA panel -->
+      <section class="mt-10 sm:mt-14">
+        <div class="reveal glass-strong rounded-[2rem] p-6 sm:p-8 shadow-glass relative overflow-hidden">
+          <div class="absolute inset-0 pointer-events-none">
+            <div class="absolute -top-28 left-10 w-80 h-80 rounded-full bg-emeraldite-400/12 blur-3xl animate-pulseGlow"></div>
+            <div class="absolute -bottom-32 right-6 w-96 h-96 rounded-full bg-[rgba(88,255,219,0.12)] blur-3xl animate-pulseGlow" style="animation-delay:1.4s;"></div>
+          </div>
+
+          <div class="relative grid lg:grid-cols-12 gap-6 items-center">
+            <div class="lg:col-span-8">
+              <h3 class="font-display text-2xl sm:text-3xl tracking-tight">
+                One platform. Every pole.
+              </h3>
+              <p class="mt-2 text-white/75 max-w-2xl">
+                From field capture to GIS stay in sync from “Ready” to “Completed".
+              </p>
+            </div>
+
+            <div class="lg:col-span-4 flex flex-col sm:flex-row lg:flex-col gap-3 lg:items-stretch">
+              <button id="ctaA" class="focusable btn-sheen rounded-2xl px-5 py-3 font-semibold text-ink-950 bg-gradient-to-r from-emeraldite-300 via-emeraldite-400 to-emeraldite-300 shadow-glow hover:brightness-110 active:brightness-95 transition">
+                Book a walkthrough
+              </button>
+              <button id="ctaB" class="focusable rounded-2xl px-5 py-3 font-semibold text-white/90 glass hover:border-white/25 hover:text-white transition">
+                Download overview
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Modal -->
+  <div id="modal" class="fixed inset-0 z-50 hidden items-center justify-center p-4">
+    <div class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
+
+    <div class="relative w-full max-w-lg glass-strong rounded-3xl shadow-glass overflow-hidden">
+      <div class="p-5 sm:p-6">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <div class="font-display text-xl tracking-tight">Request a PoleSync demo</div>
+            <div class="mt-1 text-sm text-white/70">We’ll follow up with a tailored walkthrough for your transfer workflow.</div>
+          </div>
+          <button id="closeModal" class="focusable rounded-2xl px-3 py-2 text-white/80 glass hover:text-white hover:border-white/25 transition">
+            <span class="sr-only">Close</span>
+            ✕
+          </button>
+        </div>
+
+        <form id="demoForm" class="mt-5 space-y-3">
+          <div class="grid sm:grid-cols-2 gap-3">
+            <label class="block">
+              <span class="text-xs text-white/70">Name</span>
+              <input required class="focusable mt-1 w-full rounded-2xl bg-white/5 border border-white/10 px-4 py-3 text-sm text-white placeholder:text-white/40" placeholder="Your name" />
+            </label>
+            <label class="block">
+              <span class="text-xs text-white/70">Organization</span>
+              <input required class="focusable mt-1 w-full rounded-2xl bg-white/5 border border-white/10 px-4 py-3 text-sm text-white placeholder:text-white/40" placeholder="Utility / Contractor" />
+            </label>
+          </div>
+
+          <label class="block">
+            <span class="text-xs text-white/70">Email</span>
+            <input type="email" required class="focusable mt-1 w-full rounded-2xl bg-white/5 border border-white/10 px-4 py-3 text-sm text-white placeholder:text-white/40" placeholder="name@company.com" />
+          </label>
+
+          <label class="block">
+            <span class="text-xs text-white/70">What are you coordinating?</span>
+            <select class="focusable mt-1 w-full rounded-2xl bg-white/5 border border-white/10 px-4 py-3 text-sm text-white">
+              <option class="bg-ink-900">Pole transfers</option>
+              <option class="bg-ink-900">Make-ready</option>
+              <option class="bg-ink-900">Joint-use coordination</option>
+              <option class="bg-ink-900">All of the above</option>
+            </select>
+          </label>
+
+          <button class="focusable btn-sheen w-full rounded-2xl px-5 py-3 font-semibold text-ink-950 bg-gradient-to-r from-emeraldite-300 via-emeraldite-400 to-emeraldite-300 shadow-glow hover:brightness-110 active:brightness-95 transition">
+            Submit request
+          </button>
+
+          <div id="formMsg" class="hidden mt-3 rounded-2xl bg-white/5 border border-white/10 p-4 text-sm text-white/80">
+            ✅ Request received. (This is a front-end mock—wire to your backend endpoint when ready.)
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Reveal on scroll
+    const revealEls = Array.from(document.querySelectorAll(".reveal"));
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        if (e.isIntersecting) e.target.classList.add("on");
+      });
+    }, { threshold: 0.12 });
+    revealEls.forEach(el => io.observe(el));
+
+    // Modal controls
+    const modal = document.getElementById("modal");
+    const openers = ["demoBtn","primaryCta","ctaA"].map(id => document.getElementById(id)).filter(Boolean);
+    const closers = [document.getElementById("closeModal")].filter(Boolean);
+
+    function openModal() {
+      modal.classList.remove("hidden");
+      modal.classList.add("flex");
+      document.body.style.overflow = "hidden";
+    }
+    function closeModal() {
+      modal.classList.add("hidden");
+      modal.classList.remove("flex");
+      document.body.style.overflow = "";
+    }
+
+    openers.forEach(btn => btn.addEventListener("click", openModal));
+    closers.forEach(btn => btn.addEventListener("click", closeModal));
+    modal.addEventListener("click", (e) => {
+      if (e.target === modal || e.target === modal.firstElementChild) closeModal();
+    });
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !modal.classList.contains("hidden")) closeModal();
+    });
+
+    // Secondary CTA scroll
+    const secondary = document.getElementById("secondaryCta");
+    if (secondary) secondary.addEventListener("click", () => {
+      document.getElementById("how")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+
+    // Download overview mock
+    const ctaB = document.getElementById("ctaB");
+    if (ctaB) ctaB.addEventListener("click", () => {
+      const blob = new Blob([`PoleSync Overview\n\n- Real time pole transfer coordination\n- Shared milestones & ownership\n- Escalations + audit trail\n\n(Replace this mock with your real PDF download.)`], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "PoleSync-Overview.txt";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    });
+
+    // Demo form mock submit
+    const demoForm = document.getElementById("demoForm");
+    const formMsg = document.getElementById("formMsg");
+    if (demoForm) {
+      demoForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        formMsg.classList.remove("hidden");
+      });
+    }
+
+    // Little "Live" pill micro-interaction
+    const themeBtn = document.getElementById("themeBtn");
+    if (themeBtn) {
+      themeBtn.addEventListener("click", () => {
+        themeBtn.animate(
+          [{ transform: "translateY(0)" }, { transform: "translateY(-2px)" }, { transform: "translateY(0)" }],
+          { duration: 260, easing: "cubic-bezier(.2,.9,.2,1)" }
+        );
+      });
+    }
+  </script>
+</body>
+</html>
